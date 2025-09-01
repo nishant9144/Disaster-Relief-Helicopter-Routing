@@ -2,12 +2,14 @@
 #define STRUCTURES_H
 
 #include <vector>
+#include <unordered_map>
 #include <cmath> // For sqrt and pow
 using namespace std;
 
 // --- GEOMETRIC & ENTITY STRUCTURES ---
 
-struct Point {
+struct Point
+{
     double x, y;
 };
 
@@ -16,24 +18,27 @@ struct Point {
 /**
  * @brief Calculates the Euclidean distance between two points.
  */
-inline double distance(const Point& p1, const Point& p2) {
+inline double distance(const Point &p1, const Point &p2)
+{
     return sqrt(pow(p1.x - p2.x, 2) + pow(p1.y - p2.y, 2));
 }
 
-
 // --- PROBLEM & SOLUTION STRUCTURES (remaining definitions are the same) ---
 
-struct PackageInfo {
+struct PackageInfo
+{
     double weight, value;
 };
 
-struct Village {
+struct Village
+{
     int id;
     Point coords;
     int population;
 };
 
-struct Helicopter {
+struct Helicopter
+{
     int id;
     int home_city_id;
     double weight_capacity;
@@ -42,34 +47,48 @@ struct Helicopter {
     double alpha;
 };
 
-struct ProblemData {
+struct ProblemData
+{
     double time_limit_minutes;
     double d_max;
-    vector<PackageInfo> packages;
-    vector<Point> cities;
+    vector<PackageInfo> packages; // * dry, wet, others
+    vector<Point> cities; 
     vector<Village> villages;
     vector<Helicopter> helicopters;
 };
 
-struct Drop {
+struct Drop
+{
     int village_id;
     int dry_food;
     int perishable_food;
     int other_supplies;
 };
 
-struct Trip {
+struct Trip
+{
     int dry_food_pickup;
     int perishable_food_pickup;
     int other_supplies_pickup;
     vector<Drop> drops;
 };
 
-struct HelicopterPlan {
+struct HelicopterPlan
+{
     int helicopter_id;
     vector<Trip> trips;
 };
 
 using Solution = vector<HelicopterPlan>;
+
+struct Score
+{
+    double value{};
+    double trip_costs{};
+    Score(double v, double t) : value(v), trip_costs(t) {}
+};
+
+double route_distance(const ProblemData &P, int home_city_id, const vector<int> &route_village_ids);
+Score evaluate(const Solution &sol, const ProblemData &problem);
 
 #endif // STRUCTURES_H

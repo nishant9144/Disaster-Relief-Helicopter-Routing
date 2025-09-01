@@ -46,7 +46,7 @@ ProblemData readInputData(const string& filename) {
     village_ss >> num_villages;
     data.villages.resize(num_villages);
     for (int i = 0; i < num_villages; ++i) {
-        data.villages[i].id = i + 1;
+        data.villages[i].id = i + 1; // * Villages have 1-based id
         village_ss >> data.villages[i].coords.x >> data.villages[i].coords.y >> data.villages[i].population;
     }
 

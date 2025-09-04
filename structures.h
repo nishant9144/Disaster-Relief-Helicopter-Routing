@@ -88,7 +88,7 @@ struct Score
     Score(double v, double t) : value(v), trip_costs(t) {}
 };
 
-double route_distance(const ProblemData &P, int home_city_id, const vector<int> &route_village_ids);
+// double route_distance(const ProblemData &P, int home_city_id, const vector<int> &route_village_ids);
 Score evaluate(const Solution &sol, const ProblemData &problem);
 
 #endif // STRUCTURES_H

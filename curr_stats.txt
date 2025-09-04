@@ -1,0 +1,3 @@
+solver2.cpp has knapsack implemented but not good
+solver3.cpp is our best implementation
+

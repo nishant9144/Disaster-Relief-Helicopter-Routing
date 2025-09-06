@@ -1,3 +1,5 @@
-solver2.cpp has knapsack implemented but not good
-solver3.cpp is our best implementation
+solver5.cpp, solver_sa2.cpp
+    
 
+
+solver7.cpp is underperforming for small tc.

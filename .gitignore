@@ -1,1 +1,7 @@
 *.o
+tcrun.py
+inputs/
+outputs/
+knapsack.h
+.vscode/
+results.log

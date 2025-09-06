@@ -21,7 +21,28 @@ vector<vector<int>> generate_initial_partition(const ProblemData& problem);
 // Evaluates the total score for a given partition of villages.
 Score evaluate_partition(const vector<vector<int>>& partition, const ProblemData& problem, Solution& out_solution);
 
-
+vector<vector<int>> generate_random_partition(const ProblemData& problem) {
+    vector<vector<int>> partition(problem.helicopters.size());
+    if (problem.villages.empty() || problem.helicopters.empty()) return partition;
+    
+    // Create a list of all village IDs
+    vector<int> village_ids;
+    for (const auto& village : problem.villages) {
+        village_ids.push_back(village.id);
+    }
+    
+    // Shuffle the village IDs to randomize assignment
+    random_device rd;
+    mt19937 gen(rd());
+    shuffle(village_ids.begin(), village_ids.end(), gen);
+    
+    // Distribute villages evenly across helicopters
+    for (size_t i = 0; i < village_ids.size(); ++i) {
+        partition[i % problem.helicopters.size()].push_back(village_ids[i]);
+    }
+    
+    return partition;
+}
 /**
  * @brief The main function to implement your search/optimization algorithm.
  * This implementation uses a simple Hill Climbing local search.
@@ -44,9 +65,38 @@ Solution solve(const ProblemData& problem) {
 
     cout << "Initial score: " << best_score.value << endl;
 
+
+    int iterations_without_improvements = 0;
+    const int restart_threshold = 1000;
+
+
     // 2. Start the local search (Hill Climbing)
     while (chrono::high_resolution_clock::now() - start_time < time_limit) {
         if (problem.villages.empty()) break;
+
+
+        if (iterations_without_improvements >= restart_threshold) {
+            cout << "Performing random restart..." << endl;
+            current_partition = generate_random_partition(problem);
+            iterations_without_improvements = 0;
+            
+            // Evaluate the new random partition
+            Solution restart_solution;
+            Score restart_score = evaluate_partition(current_partition, problem, restart_solution);
+            cout << "Random restart score: " << restart_score.value << endl;
+            
+            // Keep the new solution as current, but don't overwrite best if it's worse
+            if (restart_score.value > best_score.value) {
+                best_score = restart_score;
+                best_solution = restart_solution;
+                cout << "Found a better solution after restart: " << best_score.value << endl;
+            }
+            continue;
+        }
+
+
+
+
 
         // --- Generate a neighbor state ---
         vector<vector<int>> next_partition = current_partition;
@@ -84,11 +134,15 @@ Solution solve(const ProblemData& problem) {
             best_score = next_score;
             best_solution = potential_solution;
             current_partition = next_partition;
+            iterations_without_improvements = 0;
             cout << "Found a better solution with score: " << best_score.value << endl;
         }
         // NOTE: To implement random restart, you would add a counter. If no improvement
         // is found after N iterations, you'd regenerate a new random initial partition.
         // For simulated annealing, you would accept worse moves with a certain probability.
+        else {
+            ++iterations_without_improvements;
+        }
     }
 
     cout << "Solver finished. Best score found: " << best_score.value << endl;
@@ -142,8 +196,6 @@ Score evaluate_partition(const vector<vector<int>>& partition, const ProblemData
 
 /**
  * @brief A greedy heuristic to plan all trips for one helicopter given its assigned villages.
- * TODO: This is a key function to improve. A more sophisticated algorithm (like
- * your Knapsack + Clarke-Wright idea) would yield better results.
  */
 HelicopterPlan plan_trips_for_helicopter(int helicopter_id, const vector<int>& assigned_village_ids, const ProblemData& problem) {
     HelicopterPlan plan;

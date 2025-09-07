@@ -5,3 +5,4 @@ outputs/
 knapsack.h
 .vscode/
 results.log
+venv/

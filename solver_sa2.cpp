@@ -359,6 +359,85 @@ static Solution greedy_initial_solution2(const ProblemData &P, const unordered_m
     sanitize_solution(sol);
     return sol;
 }
+
+static Solution helicopter_centric_greedy_initial(const ProblemData &P, const unordered_map<int, int> &vidx, vector<long long> &meals_left, vector<long long> &others_left)
+{
+    struct VillageGain {
+        int village_idx;
+        double gain;
+        Trip trip;
+        bool operator<(const VillageGain& other) const {
+            return gain < other.gain;
+        }
+    };
+
+    int V = P.villages.size();
+    meals_left.assign(V, 0);
+    others_left.assign(V, 0);
+    for (int i = 0; i < V; ++i) {
+        meals_left[i] = 9LL * P.villages[i].population;
+        others_left[i] = 1LL * P.villages[i].population;
+    }
+
+    Solution sol;
+    for (const auto &H : P.helicopters)
+        sol.push_back({H.id, {}});
+    
+    vector<double> heli_dist_used(P.helicopters.size(), 0.0);
+    vector<bool> village_served(V, false);
+
+    for (int h_idx = 0; h_idx < P.helicopters.size(); ++h_idx) {
+        const auto &H = P.helicopters[h_idx];
+        vector<VillageGain> candidates;
+
+        // Step 1: For this helicopter, calculate the profitability of serving each unserved village
+        for (int vi = 0; vi < V; ++vi) {
+            if (village_served[vi]) continue;
+
+            Trip t;
+            double cap = H.weight_capacity;
+            long long p = min((long long)floor(cap / P.packages[1].weight), meals_left[vi]);
+            cap -= p * P.packages[1].weight;
+            long long d = min((long long)floor(cap / P.packages[0].weight), meals_left[vi] - p);
+            cap -= d * P.packages[0].weight;
+            long long o = min((long long)floor(cap / P.packages[2].weight), others_left[vi]);
+
+            if (p + d + o == 0) continue;
+            t.drops.push_back({P.villages[vi].id, (int)d, (int)p, (int)o});
+
+            double dist = trip_route_distance(P, H, t, vidx);
+            if (dist > H.distance_capacity) continue;
+
+            double value = trip_total_value(P, t, vidx, meals_left, others_left);
+            double cost = H.fixed_cost + H.alpha * dist;
+            double gain = value - cost;
+
+            if (gain > 1e-9) {
+                candidates.push_back({vi, gain, t});
+            }
+        }
+
+        // Step 2: Sort villages by profitability for this helicopter
+        sort(candidates.rbegin(), candidates.rend());
+
+        // Step 3: Greedily add trips for the most profitable villages until constraints are met
+        for (const auto& cand : candidates) {
+            if (village_served[cand.village_idx]) continue;
+            
+            double trip_dist = trip_route_distance(P, H, cand.trip, vidx);
+            if (heli_dist_used[h_idx] + trip_dist <= P.d_max) {
+                sol[h_idx].trips.push_back(cand.trip);
+                heli_dist_used[h_idx] += trip_dist;
+                subtract_demands_from_trip(cand.trip, meals_left, others_left, vidx);
+                village_served[cand.village_idx] = true;
+            }
+        }
+    }
+    
+    sanitize_solution(sol);
+    return sol;
+}
+
 // a. (New) Optimize a multi-drop trip using 2-opt
 static bool optimize_route_2opt(Solution &sol, const ProblemData &P, vector<double> &heli_used, const unordered_map<int, int> &vidx, mt19937 &rng)
 {
@@ -411,20 +490,31 @@ static bool optimize_route_2opt(Solution &sol, const ProblemData &P, vector<doub
 static bool reallocate_village(Solution &sol, const ProblemData &P, vector<double> &heli_used, const unordered_map<int, int> &vidx, mt19937 &rng)
 {
     // Select a non-empty source trip
-    vector<tuple<int, int, int>> sources; // h_idx, t_idx, drop_idx
-    for (int i = 0; i < sol.size(); ++i)
-        for (int j = 0; j < sol[i].trips.size(); ++j)
-            for (int k = 0; k < sol[i].trips[j].drops.size(); ++k)
-                sources.emplace_back(i, j, k);
+    // vector<tuple<int, int, int>> sources; // h_idx, t_idx, drop_idx
+    // for (int i = 0; i < sol.size(); ++i)
+    //     for (int j = 0; j < sol[i].trips.size(); ++j)
+    //         for (int k = 0; k < sol[i].trips[j].drops.size(); ++k)
+    //             sources.emplace_back(i, j, k);
 
-    if (sources.empty())
+    // if (sources.empty())
+    //     return false;
+
+    // const auto &src = sources[uniform_int_distribution<int>(0, sources.size() - 1)(rng)];
+    // int h1_idx = get<0>(src);
+    // int t1_idx = get<1>(src);
+    // int drop_idx = get<2>(src);
+
+
+    // cout<<"vishal"<<endl;
+    int h1_idx = uniform_int_distribution<int>(0, sol.size() - 1)(rng);
+    if (sol[h1_idx].trips.empty())
         return false;
+    int t1_idx = uniform_int_distribution<int>(0, sol[h1_idx].trips.size() - 1)(rng);
+    if (sol[h1_idx].trips[t1_idx].drops.empty())
+        return false;
+    int drop_idx = uniform_int_distribution<int>(0, sol[h1_idx].trips[t1_idx].drops.size() - 1)(rng);
 
-    const auto &src = sources[uniform_int_distribution<int>(0, sources.size() - 1)(rng)];
-    int h1_idx = get<0>(src);
-    int t1_idx = get<1>(src);
-    int drop_idx = get<2>(src);
-
+    
     // Select destination (can be a new trip)
     int h2_idx = uniform_int_distribution<int>(0, sol.size() - 1)(rng);
     int t2_idx = -1; // -1 means create a new trip
@@ -491,10 +581,29 @@ static bool reallocate_village(Solution &sol, const ProblemData &P, vector<doubl
         sol[h2_idx].trips[t2_idx] = cand_t2;
         // The erase must be last. We find the now-empty trip and remove it.
         // This is safe because we are done using indices for this helicopter.
-        sol[h1_idx].trips.erase(
-            remove_if(sol[h1_idx].trips.begin(), sol[h1_idx].trips.end(), [](const Trip &t)
-                      { return t.drops.empty(); }),
-            sol[h1_idx].trips.end());
+        // sol[h1_idx].trips.erase(
+        //     remove_if(sol[h1_idx].trips.begin(), sol[h1_idx].trips.end(), [](const Trip &t)
+        //               { return t.drops.empty(); }),
+        //     sol[h1_idx].trips.end());
+        // Get a reference to the list of trips to make the code cleaner
+        auto& trips = sol[h1_idx].trips;
+
+        // Loop through all the trips
+        for (auto it = trips.begin(); it != trips.end(); ) 
+        {
+            // Check if the current trip is empty
+            if (it->drops.empty()) 
+            {
+                // If it is empty, remove it.
+                // .erase() returns an iterator to the next item, so we update 'it'.
+                it = trips.erase(it);
+            } 
+            else 
+            {
+                // If it's not empty, just move to the next trip.
+                ++it;
+            }
+        }
     }
     else
     {
@@ -579,22 +688,43 @@ static bool add_greedy_trip(Solution &sol, const ProblemData &P, vector<double> 
 // d. (Existing) Remove a random trip
 static bool remove_random_trip(Solution &sol, const ProblemData &P, vector<double> &heli_used, vector<long long> &meals, vector<long long> &others, const unordered_map<int, int> &vidx, mt19937 &rng)
 {
-    vector<pair<int, int>> sources;
-    for (int i = 0; i < sol.size(); ++i)
-        for (int j = 0; j < sol[i].trips.size(); ++j)
-            sources.push_back({i, j});
-    if (sources.empty())
-        return false;
+    // vector<pair<int, int>> sources;
+    // for (int i = 0; i < sol.size(); ++i)
+    //     for (int j = 0; j < sol[i].trips.size(); ++j)
+    //         sources.push_back({i, j});
+    // if (sources.empty())
+    //     return false;
 
-    pair<int, int> src = sources[uniform_int_distribution<int>(0, sources.size() - 1)(rng)];
-    int h_idx = src.first;
-    int t_idx = src.second;
+    // pair<int, int> src = sources[uniform_int_distribution<int>(0, sources.size() - 1)(rng)];
+    // int h_idx = src.first;
+    // int t_idx = src.second;
 
-    const Trip &trip_to_remove = sol[h_idx].trips[t_idx];
-    heli_used[h_idx] -= trip_route_distance(P, P.helicopters[h_idx], trip_to_remove, vidx);
-    add_demands_to_trip(trip_to_remove, meals, others, vidx);
-    sol[h_idx].trips.erase(sol[h_idx].trips.begin() + t_idx);
-    return true;
+    // const Trip &trip_to_remove = sol[h_idx].trips[t_idx];
+    // heli_used[h_idx] -= trip_route_distance(P, P.helicopters[h_idx], trip_to_remove, vidx);
+    // add_demands_to_trip(trip_to_remove, meals, others, vidx);
+    // sol[h_idx].trips.erase(sol[h_idx].trips.begin() + t_idx);
+    // return true;
+    int max_attempts = 10; 
+    // cout<<"vishal"<<endl;
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        // Step 1: Pick a random helicopter index.
+        int h_idx = uniform_int_distribution<int>(0, sol.size() - 1)(rng);
+
+        // Check if this helicopter has any trips to remove.
+        if (!sol[h_idx].trips.empty()) {
+            // Step 2: Pick a random trip index from this helicopter's list.
+            int t_idx = uniform_int_distribution<int>(0, sol[h_idx].trips.size() - 1)(rng);
+
+            // --- The rest of the logic is the same as before ---
+            const Trip &trip_to_remove = sol[h_idx].trips[t_idx];
+            heli_used[h_idx] -= trip_route_distance(P, P.helicopters[h_idx], trip_to_remove, vidx);
+            add_demands_to_trip(trip_to_remove, meals, others, vidx);
+            sol[h_idx].trips.erase(sol[h_idx].trips.begin() + t_idx);
+            
+            return true; // Exit after successfully removing the trip
+        }
+    }
+    return false;
 }
 
 Solution solve(const ProblemData &P)
@@ -602,12 +732,12 @@ Solution solve(const ProblemData &P)
     auto vidx = buildVillageIdIndex(P);
 
     vector<long long> meals_left, others_left;
-    Solution best = greedy_initial_solution1(P, vidx, meals_left, others_left);
+    Solution best = helicopter_centric_greedy_initial(P, vidx, meals_left, others_left);
     Solution cur = best;
 
     double best_score = evaluate_solution_value(best, P, vidx);
     double cur_score = best_score;
-
+    cout << "Initial solution value: " << best_score << "\n";
     vector<double> cur_heli_used = compute_helicopter_distances(cur, P, vidx);
     vector<double> best_heli_used = cur_heli_used;
     vector<long long> best_meals_left = meals_left;
@@ -626,12 +756,14 @@ Solution solve(const ProblemData &P)
     auto start_time = Clock::now();
     int iter = 0;
     int stagnation = 0;
-
-    while (true)
+    int iit=0;
+    while (true )
     {
+        // iit++;
         ++iter;
         auto now = Clock::now();
         auto time_spent = chrono::duration_cast<chrono::duration<double>>(now - start_time).count();
+        // cout<<best_score<<endl;
         cout << "Iter " << iter << " cur_score=" << cur_score << " best_score=" << best_score << " T=" << T << " stagnation=" << stagnation << " time_spent=" << time_spent << "s\r";
         if (time_spent >= time_limit_seconds)
             break;
@@ -704,10 +836,10 @@ Solution solve(const ProblemData &P)
             T *= alpha;
 
         // If stuck, jump back to the best solution to explore from there
-        if (stagnation > 500)
+        if (stagnation > 5000)
         {
             // Replace your current stagnation handler with this:
-            if (stagnation > 500)
+            if (stagnation > 5000)
             {
                 // cout << "Performing random restart at iteration " << iter << endl;
 

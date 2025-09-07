@@ -1,7 +1,7 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -O2
-
+CXXFLAGS = -std=c++17 -Wall -O2 -m64
+# CXXFLAGS = -std=c++17 -Wall -O2 -m64
 # Executable names
 EXEC = main
 CHECKER_EXEC = format_checker
@@ -38,7 +38,6 @@ $(CHECKER_EXEC): $(CHECKER_OBJS) io_handler.o
 
 # Clean up build files
 clean:
-	@rm -f $(EXEC) $(OBJS)  
-# $(CHECKER_OBJS) $(CHECKER_EXEC)
+	rm -f $(EXEC) $(OBJS) $(CHECKER_OBJS) $(CHECKER_EXEC)
 
 .PHONY: all clean checker

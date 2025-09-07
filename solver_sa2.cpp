@@ -8,7 +8,7 @@
 #include <chrono>
 #include <unordered_map>
 #include <cmath>
-
+#include <queue> // Required for std::priority_queue
 using namespace std;
 using Clock = std::chrono::high_resolution_clock;
 
@@ -179,8 +179,8 @@ static void add_demands_to_trip(const Trip &t, vector<long long> &meals, vector<
 }
 
 // --- INITIAL SOLUTION ---
-static Solution greedy_initial_solution(const ProblemData &P, const unordered_map<int, int> &vidx, vector<long long> &meals_left, vector<long long> &others_left)
-{
+static Solution greedy_initial_solution1(const ProblemData &P, const unordered_map<int, int> &vidx, vector<long long> &meals_left, vector<long long> &others_left)
+ {
     int V = P.villages.size();
     meals_left.assign(V, 0);
     others_left.assign(V, 0);
@@ -258,6 +258,107 @@ static Solution greedy_initial_solution(const ProblemData &P, const unordered_ma
     return sol;
 }
 
+
+// The Candidate struct needs a comparison operator for the priority queue
+struct Candidate
+{
+    int heli_idx;
+    int village_idx;
+    Trip trip;
+    double gain;
+    double dist;
+
+    // This tells the priority_queue to order candidates by gain
+    // It's a "less than" operator, so higher gain is "less" to make it a max-heap
+    bool operator<(const Candidate& other) const {
+        return gain < other.gain;
+    }
+};
+
+
+static Solution greedy_initial_solution2(const ProblemData &P, const unordered_map<int, int> &vidx, vector<long long> &meals_left, vector<long long> &others_left)
+{
+    // --- 1. SETUP ---
+    // Standard setup: initialize demands, solution structure, and distance tracking
+    int V = P.villages.size();
+    meals_left.assign(V, 0);
+    others_left.assign(V, 0);
+    for (int i = 0; i < V; ++i) {
+        meals_left[i] = 9LL * P.villages[i].population;
+        others_left[i] = 1LL * P.villages[i].population;
+    }
+
+    Solution sol;
+    for (const auto &H : P.helicopters)
+        sol.push_back({H.id, {}});
+    
+    vector<double> heli_dist_used(P.helicopters.size(), 0.0);
+    
+    // --- 2. BUILD PHASE ---
+    // Create a priority queue to store all profitable trips.
+    // This is done ONLY ONCE.
+    priority_queue<Candidate> pq;
+
+    for (int h_idx = 0; h_idx < P.helicopters.size(); ++h_idx) {
+        const auto &H = P.helicopters[h_idx];
+        for (int vi = 0; vi < V; ++vi) {
+            if (meals_left[vi] <= 0 && others_left[vi] <= 0)
+                continue;
+
+            // Create a potential trip packed for this village
+            Trip t;
+            double cap = H.weight_capacity;
+            long long p = min((long long)floor(cap / P.packages[1].weight), meals_left[vi]);
+            cap -= p * P.packages[1].weight;
+            long long d = min((long long)floor(cap / P.packages[0].weight), meals_left[vi] - p);
+            cap -= d * P.packages[0].weight;
+            long long o = min((long long)floor(cap / P.packages[2].weight), others_left[vi]);
+
+            if (p + d + o == 0) continue;
+
+            t.drops.push_back({P.villages[vi].id, (int)d, (int)p, (int)o});
+            
+            double dist = trip_route_distance(P, H, t, vidx);
+            if (dist > H.distance_capacity || heli_dist_used[h_idx] + dist > P.d_max)
+                continue;
+
+            double value = trip_total_value(P, t, vidx, meals_left, others_left);
+            double cost = H.fixed_cost + H.alpha * dist;
+            double gain = value - cost;
+
+            if (gain > 1e-9)
+                pq.push({h_idx, vi, t, gain, dist});
+        }
+    }
+    
+    // --- 3. EXTRACTION PHASE ---
+    // Greedily extract the best valid trip from the queue until it's empty.
+    while(!pq.empty()) {
+        // Get the best potential trip from the top of the queue
+        Candidate best_cand = pq.top();
+        pq.pop();
+
+        // **CRITICAL VALIDITY CHECK**
+        // Check if this candidate is "stale" (i.e., its conditions have changed)
+        // 1. Does the village still need the supplies this trip offers?
+        // 2. Does the helicopter still have enough distance capacity?
+        if (meals_left[best_cand.village_idx] < (best_cand.trip.drops[0].perishable_food + best_cand.trip.drops[0].dry_food) ||
+            others_left[best_cand.village_idx] < best_cand.trip.drops[0].other_supplies ||
+            heli_dist_used[best_cand.heli_idx] + best_cand.dist > P.d_max)
+        {
+            // This candidate is stale/invalid. Discard it and try the next best one.
+            continue;
+        }
+
+        // If the candidate is valid, accept it!
+        sol[best_cand.heli_idx].trips.push_back(best_cand.trip);
+        heli_dist_used[best_cand.heli_idx] += best_cand.dist;
+        subtract_demands_from_trip(best_cand.trip, meals_left, others_left, vidx);
+    }
+
+    sanitize_solution(sol);
+    return sol;
+}
 // a. (New) Optimize a multi-drop trip using 2-opt
 static bool optimize_route_2opt(Solution &sol, const ProblemData &P, vector<double> &heli_used, const unordered_map<int, int> &vidx, mt19937 &rng)
 {
@@ -501,7 +602,7 @@ Solution solve(const ProblemData &P)
     auto vidx = buildVillageIdIndex(P);
 
     vector<long long> meals_left, others_left;
-    Solution best = greedy_initial_solution(P, vidx, meals_left, others_left);
+    Solution best = greedy_initial_solution1(P, vidx, meals_left, others_left);
     Solution cur = best;
 
     double best_score = evaluate_solution_value(best, P, vidx);
@@ -520,7 +621,8 @@ Solution solve(const ProblemData &P)
     double T_min = 1e-3;
     double alpha = 0.999;
 
-    double time_limit_seconds = max(1.0, P.time_limit_minutes * 60.0 - 5);
+    double time_limit_seconds = max(1.0, P.time_limit_minutes * 60.0 - 25);
+    // time_limit_seconds=60;
     auto start_time = Clock::now();
     int iter = 0;
     int stagnation = 0;
@@ -529,8 +631,13 @@ Solution solve(const ProblemData &P)
     {
         ++iter;
         auto now = Clock::now();
-        if (chrono::duration_cast<chrono::duration<double>>(now - start_time).count() >= time_limit_seconds)
+        auto time_spent = chrono::duration_cast<chrono::duration<double>>(now - start_time).count();
+        cout << "Iter " << iter << " cur_score=" << cur_score << " best_score=" << best_score << " T=" << T << " stagnation=" << stagnation << " time_spent=" << time_spent << "s\r";
+        if (time_spent >= time_limit_seconds)
             break;
+        // if (chrono::duration_cast<chrono::duration<double>>(now - start_time).count() >= time_limit_seconds)
+            
+        //     break;
         if (T < T_min)
             break;
 

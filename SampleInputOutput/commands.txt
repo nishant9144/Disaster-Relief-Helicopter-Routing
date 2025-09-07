@@ -1,0 +1,15 @@
+# ---------- SMALL (3) ----------
+./main ./input_small_01.txt ./output_small_01.txt
+./main ./input_small_02.txt ./output_small_02.txt
+./main ./input_small_03.txt ./output_small_03.txt
+
+# ---------- MEDIUM (4) ----------
+./main ./input_medium_01.txt ./output_medium_01.txt
+./main ./input_medium_02.txt ./output_medium_02.txt
+./main ./input_medium_03.txt ./output_medium_03.txt
+./main ./input_medium_04.txt ./output_medium_04.txt
+
+# ---------- LARGE (3) ----------
+./main ./input_large_01.txt ./output_large_01.txt
+./main ./input_large_02.txt ./output_large_02.txt
+./main ./input_large_03.txt ./output_large_03.txt
